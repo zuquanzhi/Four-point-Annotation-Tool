@@ -56,7 +56,7 @@ class AnnotationApp:
         # Annotation related
         self.annotations = []
         self.history = []
-        self.selected_point = (-1, -1)
+        self.selected_annotation = -1  # 当前选中的标注索引
         self.max_points = 4
         self.class_id = 0
         self.id_colors = {}
@@ -70,35 +70,51 @@ class AnnotationApp:
         
         # Control panel
         control_x = self.image_panel_width + 20
+        # self.buttons = [
+        #     Button(pygame.Rect(control_x, 50, 360, 50), 
+        #           "Save (Enter)", (0, 150, 0), (0, 200, 0)),
+        #     Button(pygame.Rect(control_x, 120, 360, 50),
+        #           "Skip (->)", (150, 0, 0), (200, 0, 0)),
+        #     Button(pygame.Rect(control_x, 190, 360, 50),
+        #           "Undo (Ctrl+Z)", (100, 100, 100), (150, 150, 150)),
+        #     Button(pygame.Rect(control_x, 260, 360, 50),
+        #           "Delete Selected (Del)", (200, 50, 50), (250, 100, 100)),
+        #     Button(pygame.Rect(control_x, 330, 360, 50),
+        #           "Set Current ID", (80, 80, 180), (120, 120, 220)),
+        #     # Button(pygame.Rect(control_x, 400, 360, 50),
+        #     #       "Edit ID Color", (80, 180, 80), (120, 220, 120))
+        # ]
+
         self.buttons = [
             Button(pygame.Rect(control_x, 50, 360, 50), 
-                  "Save (Enter)", (0, 150, 0), (0, 200, 0)),
+                  "Save (Enter)", (46, 204, 113), (39, 174, 96)),  # 翡翠绿
             Button(pygame.Rect(control_x, 120, 360, 50),
-                  "Skip (->)", (150, 0, 0), (200, 0, 0)),
+                  "Skip (->)", (52, 152, 219), (41, 128, 185)),  # 湖蓝色
             Button(pygame.Rect(control_x, 190, 360, 50),
-                  "Undo (Ctrl+Z)", (100, 100, 100), (150, 150, 150)),
+                  "Undo (Ctrl+Z)", (155, 89, 182), (142, 68, 173)),  # 紫水晶
             Button(pygame.Rect(control_x, 260, 360, 50),
-                  "Delete Selected (Del)", (200, 50, 50), (250, 100, 100)),
+                  "Delete Selected (Del)", (231, 76, 60), (192, 57, 43)),  # 朱红色
             Button(pygame.Rect(control_x, 330, 360, 50),
-                  "Set Current ID", (80, 80, 180), (120, 120, 220)),
-            # Button(pygame.Rect(control_x, 400, 360, 50),
-            #       "Edit ID Color", (80, 180, 80), (120, 220, 120))
+                  "Set Current ID", (243, 156, 18), (230, 126, 34)),  # 橙色
         ]
         
         # 输入框
-        self.input_box = pygame.Rect(control_x, 460, 360, 40)
+        self.input_box = pygame.Rect(control_x, 400, 50, 40)
         self.input_text = ""
         self.input_active = False
+        
+        # 右键菜单
+        self.context_menu = None
         
         # Status
         self.status_msg = ""
 
     def get_color_for_id(self, class_id):
-        """自动生成或获取预设颜色"""
+        """智能生成颜色"""
         if class_id in self.id_colors:
             return self.id_colors[class_id]
         
-        # 生成唯一颜色
+        # 基于哈希生成可重复的颜色
         h = hashlib.md5(str(class_id).encode()).hexdigest()
         color = (
             int(h[0:2], 16) % 200 + 50,
@@ -109,7 +125,6 @@ class AnnotationApp:
         return color
 
     def load_id_colors(self):
-        """加载颜色预设"""
         try:
             with open("id_colors.json", "r") as f:
                 self.id_colors = json.load(f)
@@ -118,7 +133,6 @@ class AnnotationApp:
             self.id_colors = {}
 
     def save_id_colors(self):
-        """保存颜色预设"""
         with open("id_colors.json", "w") as f:
             json.dump(self.id_colors, f)
 
@@ -172,10 +186,10 @@ class AnnotationApp:
             self.screen.blit(self.image, self.image_offset)
             
             # Draw annotations
-            for ann in self.annotations:
+            for idx, ann in enumerate(self.annotations):
                 points = self.scale_points(ann['points'], to_screen=True)
                 color = self.get_color_for_id(ann['id'])
-                if ann.get('selected'):
+                if idx == self.selected_annotation:
                     color = tuple(min(c+50, 255) for c in color)
                 
                 if len(points) >= 8:
@@ -200,6 +214,11 @@ class AnnotationApp:
 
         # Draw control panel
         self.draw_control_panel()
+        
+        # Draw context menu
+        if self.context_menu:
+            self.draw_context_menu()
+            
         pygame.display.flip()
 
     def scale_points(self, points, to_screen=True):
@@ -229,7 +248,7 @@ class AnnotationApp:
         self.screen.blit(current_id_surf, (self.image_panel_width + 20, 470))
         
         # 输入框
-        pygame.draw.rect(self.screen, (100,100,200) if self.input_active else (80,80,180), 
+        pygame.draw.rect(self.screen, (52, 152, 219) if self.input_active else (41, 128, 185), 
                         self.input_box, 0, border_radius=3)
         text_surf = self.font.render(self.input_text, True, (255,255,255))
         self.screen.blit(text_surf, (self.input_box.x + 10, self.input_box.y + 5))
@@ -237,6 +256,23 @@ class AnnotationApp:
         # 状态信息
         status_surf = self.title_font.render(self.status_msg, True, (200,200,200))
         self.screen.blit(status_surf, (self.image_panel_width + 20, self.screen_height - 50))
+
+    def draw_context_menu(self):
+        menu_x, menu_y = self.context_menu['pos']
+        menu_rect = pygame.Rect(menu_x, menu_y, 200, 100)
+        pygame.draw.rect(self.screen, (80,80,80), menu_rect, border_radius=5)
+        
+        # 修改ID按钮
+        id_btn = pygame.Rect(menu_x+10, menu_y+10, 180, 35)
+        pygame.draw.rect(self.screen, (100,100,200), id_btn, border_radius=3)
+        text_surf = self.title_font.render("Change ID", True, (255,255,255))
+        self.screen.blit(text_surf, (menu_x+20, menu_y+15))
+        
+        # 删除按钮
+        del_btn = pygame.Rect(menu_x+10, menu_y+55, 180, 35)
+        pygame.draw.rect(self.screen, (200,50,50), del_btn, border_radius=3)
+        text_surf = self.title_font.render("Delete", True, (255,255,255))
+        self.screen.blit(text_surf, (menu_x+20, menu_y+60))
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -250,7 +286,7 @@ class AnnotationApp:
                 self.handle_mouse_move(event)
                 
             elif event.type == pygame.MOUSEBUTTONUP:
-                self.selected_point = (-1, -1)
+                self.handle_mouse_up(event)
                 
             elif event.type == pygame.KEYDOWN:
                 self.handle_key_down(event)
@@ -258,6 +294,10 @@ class AnnotationApp:
     def handle_mouse_down(self, event):
         mouse_pos = event.pos
         
+        # 关闭右键菜单
+        if self.context_menu and event.button != self.context_menu['button']:
+            self.context_menu = None
+            
         # 控制面板点击
         if mouse_pos[0] > self.image_panel_width:
             for btn in self.buttons:
@@ -285,13 +325,86 @@ class AnnotationApp:
                 
         # 图片区域点击
         img_pos = self.screen_to_image_pos(mouse_pos)
-        if event.button == 1:  # 左键添加点
+        if event.button == 1:  # 左键
             self.add_annotation_point(img_pos)
-        elif event.button == 3:  # 右键选择标注
-            self.select_annotation(img_pos)
+            self.context_menu = None
+        elif event.button == 3:  # 右键
+            self.handle_right_click(mouse_pos)
+
+    def handle_right_click(self, mouse_pos):
+        # 检测是否点击在已有标注上
+        img_pos = self.screen_to_image_pos(mouse_pos)
+        selected = -1
+        for idx, ann in enumerate(self.annotations):
+            if len(ann['points']) < 8:
+                continue
+            if self.point_in_polygon(img_pos, ann['points']):
+                selected = idx
+                break
+                
+        if selected != -1:
+            self.selected_annotation = selected
+            self.context_menu = {
+                'pos': mouse_pos,
+                'annotation_idx': selected,
+                'button': 3
+            }
+        else:
+            self.selected_annotation = -1
+            self.context_menu = None
+
+    def handle_mouse_up(self, event):
+        if event.button == 3 and self.context_menu:
+            # 处理右键菜单点击
+            mouse_pos = event.pos
+            menu_x, menu_y = self.context_menu['pos']
+            
+            # 检查是否点击修改ID按钮
+            if menu_x+10 <= mouse_pos[0] <= menu_x+190:
+                if menu_y+10 <= mouse_pos[1] <= menu_y+45:
+                    self.change_selected_id()
+                elif menu_y+55 <= mouse_pos[1] <= menu_y+90:
+                    self.delete_selected()
+                    
+            self.context_menu = None
+
+    def change_selected_id(self):
+        """修改选中标注的ID"""
+        if self.selected_annotation == -1:
+            return
+            
+        root = tk.Tk()
+        root.withdraw()
+        new_id = simpledialog.askinteger("Change ID", "Enter new ID:", parent=root)
+        if new_id is not None:
+            self.annotations[self.selected_annotation]['id'] = new_id
+            self.status_msg = f"Changed ID to {new_id}"
+
+    def handle_mouse_move(self, event):
+        pass  # 保持空实现避免报错
+
+    def handle_key_down(self, event):
+        # 快捷键
+        if event.key == pygame.K_RETURN:
+            if self.input_active:
+                self.set_current_id()
+            else:
+                self.save_annotations()
+        elif event.key == pygame.K_RIGHT:
+            self.skip_to_next_image()
+        elif event.key == pygame.K_DELETE:
+            self.delete_selected()
+        elif event.key == pygame.K_z and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+            self.undo()
+            
+        # 输入处理
+        if self.input_active:
+            if event.key == pygame.K_BACKSPACE:
+                self.input_text = self.input_text[:-1]
+            elif event.unicode.isdigit():
+                self.input_text += event.unicode
 
     def set_current_id(self):
-        """设置当前ID"""
         try:
             new_id = int(self.input_text)
             self.class_id = new_id
@@ -300,9 +413,6 @@ class AnnotationApp:
             self.status_msg = "Invalid ID format"
 
     def edit_id_color(self):
-        """编辑ID颜色"""
-        root = tk.Tk()
-        root.withdraw()
         try:
             target_id = int(self.input_text)
             color = colorchooser.askcolor(title=f"Choose color for ID {target_id}")[0]
@@ -335,22 +445,6 @@ class AnnotationApp:
         if len(self.annotations[-1]['points']) == self.max_points*2:
             self.status_msg = "Quadrilateral completed"
 
-    def select_annotation(self, img_pos):
-        for ann in self.annotations:
-            ann['selected'] = False
-            
-        for ann in reversed(self.annotations):
-            points = ann['points']
-            if len(points) < 8:
-                continue
-                
-            if self.point_in_polygon(img_pos, points):
-                ann['selected'] = True
-                self.class_id = ann['id']
-                self.input_text = str(self.class_id)
-                self.status_msg = f"Selected ID {self.class_id}"
-                return
-
     def point_in_polygon(self, point, polygon):
         x, y = point
         n = len(polygon)//2
@@ -363,35 +457,6 @@ class AnnotationApp:
             if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
                 inside = not inside
         return inside
-
-    def handle_mouse_move(self, event):
-        if self.selected_point != (-1, -1) and event.buttons[0]:
-            ann_idx, pt_idx = self.selected_point
-            img_pos = self.screen_to_image_pos(event.pos)
-            self.annotations[ann_idx]['points'][pt_idx] = img_pos[0]
-            self.annotations[ann_idx]['points'][pt_idx+1] = img_pos[1]
-            self.update_display()
-
-    def handle_key_down(self, event):
-        # 快捷键
-        if event.key == pygame.K_RETURN:
-            if self.input_active:
-                self.set_current_id()
-            else:
-                self.save_annotations()
-        elif event.key == pygame.K_RIGHT:
-            self.skip_to_next_image()
-        elif event.key == pygame.K_DELETE:
-            self.delete_selected()
-        elif event.key == pygame.K_z and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-            self.undo()
-            
-        # 输入处理
-        if self.input_active:
-            if event.key == pygame.K_BACKSPACE:
-                self.input_text = self.input_text[:-1]
-            elif event.unicode.isdigit():
-                self.input_text += event.unicode
 
     def save_annotations(self):
         if not self.current_file or not self.save_directory:
@@ -423,8 +488,11 @@ class AnnotationApp:
             self.status_msg = "Last image reached"
 
     def delete_selected(self):
-        self.annotations = [a for a in self.annotations if not a['selected']]
-        self.update_display()
+        if self.selected_annotation != -1:
+            del self.annotations[self.selected_annotation]
+            self.selected_annotation = -1
+            self.update_display()
+            self.status_msg = "Annotation deleted"
 
     def record_history(self):
         self.history.append(copy.deepcopy(self.annotations))
