@@ -84,6 +84,7 @@ class AnnotationApp:
         #     # Button(pygame.Rect(control_x, 400, 360, 50),
         #     #       "Edit ID Color", (80, 180, 80), (120, 220, 120))
         # ]
+        
 
         self.buttons = [
             Button(pygame.Rect(control_x, 50, 360, 50), 
@@ -108,6 +109,7 @@ class AnnotationApp:
         
         # Status
         self.status_msg = ""
+        self.point_radius = 3
 
     def get_color_for_id(self, class_id):
         """智能生成颜色"""
@@ -210,7 +212,7 @@ class AnnotationApp:
                 # Draw points
                 for i in range(0, len(points), 2):
                     pygame.draw.circle(self.screen, (250, 50, 50), 
-                                     (points[i], points[i+1]), 7)
+                                     (points[i], points[i+1]), self.point_radius)
 
         # Draw control panel
         self.draw_control_panel()
